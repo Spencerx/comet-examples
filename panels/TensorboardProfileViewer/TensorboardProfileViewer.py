@@ -32,12 +32,17 @@ def get_instance_port(instance_id, registry_key="instance_port_map"):
         st.session_state[registry_key] = {}
     registry = st.session_state[registry_key]
     if instance_id not in registry:
-        next_port = PORT_RANGE_START + len(registry)
-        if next_port >= PORT_RANGE_END:
+        used_ports = set(registry.values())
+        next_port = next(
+            (p for p in range(PORT_RANGE_START, PORT_RANGE_END) if p not in used_ports),
+            None,
+        )
+        if next_port is None:
             raise RuntimeError(
                 f"No available ports: all ports {PORT_RANGE_START}-{PORT_RANGE_END - 1} are in use."
             )
         registry[instance_id] = next_port
+        st.session_state[registry_key] = registry
     return registry[instance_id]
 
 
@@ -49,9 +54,9 @@ else:
 if "tensorboard_state" not in st.session_state:
     st.session_state["tensorboard_state"] = None
 
-from streamlit_js_eval import get_page_location
-
 st.set_page_config(layout="wide")
+
+from streamlit_js_eval import get_page_location
 
 api = API()
 experiments = api.get_panel_experiments()
