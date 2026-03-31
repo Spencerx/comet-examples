@@ -69,21 +69,25 @@ if instance_id is None:
     port = 6007
 else:
     port = get_instance_port(instance_id)
+
+log_dir = f"./logs/{instance_id or 'default'}"
+cache_dir = f"./tb_cache/{instance_id or 'default'}"
+
 st.set_page_config(layout="wide")
 
 from streamlit_js_eval import get_page_location
 
-os.makedirs("./tb_cache", exist_ok=True)
-os.makedirs("./logs", exist_ok=True)
+os.makedirs(cache_dir, exist_ok=True)
+os.makedirs(log_dir, exist_ok=True)
 
 DEBUG = False
 
 # Clear cache and downloads
 if DEBUG:
-    if os.path.exists("./tb_cache"):
-        shutil.rmtree("./tb_cache")
-    if os.path.exists("./logs"):
-        shutil.rmtree("./logs")
+    if os.path.exists(cache_dir):
+        shutil.rmtree(cache_dir)
+    if os.path.exists(log_dir):
+        shutil.rmtree(log_dir)
 
 api = API()
 experiments = api.get_panel_experiments()
@@ -162,19 +166,19 @@ if page_location is not None:
         "Copy Selected Experiment Logs to Tensorboard Server", type="primary"
     ):
         need_refresh = True
-        if clear and os.path.exists("./logs"):
-            for filename in glob.glob("./logs/*"):
-                shutil.move(filename, "./tb_cache/")
+        if clear and os.path.exists(log_dir):
+            for filename in glob.glob(f"{log_dir}/*"):
+                shutil.move(filename, cache_dir)
         bar = st.progress(0, "Downloading log files...")
         for i, experiment in enumerate(experiments):
             bar.progress(i / len(experiments), "Downloading log files...")
-            if not os.path.exists("./logs/%s" % experiment.name):
-                if os.path.exists("./tb_cache/%s" % experiment.name):
+            if not os.path.exists(f"{log_dir}/{experiment.name}"):
+                if os.path.exists(f"{cache_dir}/{experiment.name}"):
                     if DEBUG:
                         print("found in cache!")
                     shutil.move(
-                        "./tb_cache/%s" % experiment.name,
-                        "./logs/%s" % experiment.name,
+                        f"{cache_dir}/{experiment.name}",
+                        f"{log_dir}/{experiment.name}",
                     )
                 else:
                     if DEBUG:
@@ -185,8 +189,11 @@ if page_location is not None:
                             print(assets[0]["fileName"])
                         if assets[0]["fileName"].startswith("logs/"):
                             experiment.download_tensorflow_folder("./")
+                            downloaded = f"./logs/{experiment.name}"
+                            if os.path.exists(downloaded):
+                                shutil.move(downloaded, f"{log_dir}/{experiment.name}")
                         else:
-                            experiment.download_tensorflow_folder("./logs/")
+                            experiment.download_tensorflow_folder(f"{log_dir}/")
         bar.empty()
 
     # Check if we need to restart server
@@ -205,7 +212,7 @@ if page_location is not None:
             st.warning("Previous Tensorboard server may still be running")
 
         # Start new server
-        command = f"/home/stuser/.local/bin/tensorboard --logdir ./logs --port {port}".split()
+        command = f"/home/stuser/.local/bin/tensorboard --logdir {log_dir} --port {port}".split()
         env = (
             {}
         )  # {"PYTHONPATH": "/home/st_user/.local/lib/python3.9/site-packages"}
