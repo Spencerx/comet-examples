@@ -19,6 +19,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import os
+import json
+import fcntl
 import subprocess
 import psutil
 import time
@@ -29,33 +31,43 @@ import requests
 import socket
 
 # --- Per-instance port assignment (6000-6009) ---
-# All Streamlit panels share the same session_state, so this dict persists
-# across instances and can be reused by other panels that start servers.
+# Registry is stored in a file so it is shared across all panel processes
+# and survives Streamlit session resets.
 
 PORT_RANGE_START = 6000
 PORT_RANGE_END = 6010  # exclusive
+PORT_REGISTRY_FILE = "/tmp/tb_port_registry.json"
 
 
-def get_instance_port(instance_id, registry_key="instance_port_map"):
+def get_instance_port(instance_id):
     """Return the port assigned to instance_id, assigning the next available
-    port if this instance hasn't been seen before.  Raises RuntimeError when
-    the port range is exhausted."""
-    if registry_key not in st.session_state:
-        st.session_state[registry_key] = {}
-    registry = st.session_state[registry_key]
-    if instance_id not in registry:
-        used_ports = set(registry.values())
-        next_port = next(
-            (p for p in range(PORT_RANGE_START, PORT_RANGE_END) if p not in used_ports),
-            None,
-        )
-        if next_port is None:
-            raise RuntimeError(
-                f"No available ports: all ports {PORT_RANGE_START}-{PORT_RANGE_END - 1} are in use."
+    port if this instance hasn't been seen before.  Uses a file lock so
+    concurrent panel startups don't race.  Raises RuntimeError when the port
+    range is exhausted."""
+    if not os.path.exists(PORT_REGISTRY_FILE):
+        with open(PORT_REGISTRY_FILE, "w") as f:
+            json.dump({}, f)
+    with open(PORT_REGISTRY_FILE, "r+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            registry = json.load(f)
+        except (json.JSONDecodeError, ValueError):
+            registry = {}
+        if instance_id not in registry:
+            used_ports = set(registry.values())
+            next_port = next(
+                (p for p in range(PORT_RANGE_START, PORT_RANGE_END) if p not in used_ports),
+                None,
             )
-        registry[instance_id] = next_port
-        st.session_state[registry_key] = registry
-    return registry[instance_id]
+            if next_port is None:
+                raise RuntimeError(
+                    f"No available ports: all ports {PORT_RANGE_START}-{PORT_RANGE_END - 1} are in use."
+                )
+            registry[instance_id] = next_port
+            f.seek(0)
+            f.truncate()
+            json.dump(registry, f)
+        return registry[instance_id]
 
 
 instance_id = os.environ.get("COMET_PANEL_INSTANCE_ID")
